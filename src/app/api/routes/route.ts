@@ -6,9 +6,21 @@ import { fetchNycConstructionPermits } from '@/lib/nyc-open-data/construction';
 import { fetchNyc311Complaints } from '@/lib/nyc-open-data/complaints311';
 import { fetchActiveCommunityReports } from '@/server/repositories/reports';
 import { calculateBarrierlessScore } from '@/features/scoring/score-route';
-import { AccessibilityEvidence, RouteCandidate } from '@/types';
+import { getEvidenceNearRoute } from '@/lib/geospatial/route-evidence';
+import { AccessibilityEvidence, Coordinates, RouteCandidate, SystemDataStatus } from '@/types';
+import { checkRateLimit } from '@/lib/security/rate-limit';
 
 export async function POST(req: NextRequest) {
+  // Rate limiting check
+  const ip = req.headers.get('x-forwarded-for') || 'anonymous';
+  const rateLimit = checkRateLimit(`routes-${ip}`, 30, 60000);
+  if (!rateLimit.success) {
+    return NextResponse.json(
+      { error: 'Too many route calculation requests. Please wait a moment.' },
+      { status: 429 }
+    );
+  }
+
   try {
     const body = await req.json();
     const parsed = RouteRequestSchema.safeParse(body);
@@ -18,21 +30,37 @@ export async function POST(req: NextRequest) {
 
     const { origin, destination, profile } = parsed.data;
 
-    // 1. Retrieve route candidates
-    const candidates = await fetchRouteCandidates(origin, destination, profile);
+    // Calculate bounding box for geographically scoped NYC Open Data queries (+0.01 degree padding ~1km)
+    const minLng = Math.min(origin[0], destination[0]) - 0.01;
+    const maxLng = Math.max(origin[0], destination[0]) + 0.01;
+    const minLat = Math.min(origin[1], destination[1]) - 0.01;
+    const maxLat = Math.max(origin[1], destination[1]) + 0.01;
+    const bounds: [Coordinates, Coordinates] = [[minLng, minLat], [maxLng, maxLat]];
 
-    // 2. Fetch NYC Open Data & community barrier signals concurrently
-    const [ramps, construction, complaints, communityReports] = await Promise.all([
-      fetchNycPedestrianRamps(),
-      fetchNycConstructionPermits(),
-      fetchNyc311Complaints(),
+    // 1. Retrieve route candidates and fetch signals concurrently
+    const [
+      routingRes,
+      rampsRes,
+      constructionRes,
+      complaintsRes,
+      communityRes
+    ] = await Promise.all([
+      fetchRouteCandidates(origin, destination, profile),
+      fetchNycPedestrianRamps(bounds),
+      fetchNycConstructionPermits(bounds),
+      fetchNyc311Complaints(bounds),
       fetchActiveCommunityReports()
     ]);
 
-    // Map community reports to normalized evidence shape
-    const communityEvidence: AccessibilityEvidence[] = communityReports.map((r) => ({
+    const candidates = routingRes.routes;
+
+    // Map community reports to normalized evidence shape with provenance
+    const communityEvidence: AccessibilityEvidence[] = communityRes.reports.map((r) => ({
       id: r.id,
       source: 'community',
+      sourceType: 'community',
+      sourceName: 'User Barrier Report',
+      dataMode: communityRes.dataMode,
       coordinate: [r.longitude, r.latitude],
       severity: r.severity,
       category: r.barrierType,
@@ -40,23 +68,26 @@ export async function POST(req: NextRequest) {
       observedAt: r.createdAt
     }));
 
-    const allEvidence = [...ramps, ...construction, ...complaints, ...communityEvidence];
+    const allEvidence = [
+      ...rampsRes.evidence,
+      ...constructionRes.evidence,
+      ...complaintsRes.evidence,
+      ...communityEvidence
+    ];
 
-    // 3. Compute BAIE score for each route candidate deterministically
-    const scoredCandidates: RouteCandidate[] = candidates.map((route, idx) => {
-      // Filter evidence items near route path (simplified spatial buffer matching)
-      const routeEvidence = allEvidence.filter((e) => {
-        // Mock spatial proximity check against route geometry
-        const [ex, ey] = e.coordinate;
-        return route.geometry.coordinates.some(([rx, ry]) => {
-          return Math.abs(rx - ex) < 0.003 && Math.abs(ry - ey) < 0.003;
-        });
-      });
+    // Data status report for UI transparency
+    const dataStatus: SystemDataStatus = {
+      routing: routingRes.dataMode,
+      ramps: rampsRes.dataMode,
+      construction: constructionRes.dataMode,
+      complaints311: complaintsRes.dataMode,
+      communityReports: communityRes.dataMode
+    };
 
-      // Route B gets extra ramp evidence for demonstration of bypass superiority
-      if (route.id === 'route-b') {
-        routeEvidence.push(...ramps.slice(0, 3));
-      }
+    // 2. Compute BAIE score for each route candidate deterministically using Turf.js spatial corridor distance
+    const scoredCandidates: RouteCandidate[] = candidates.map((route) => {
+      // Use Turf.js pointToLineDistance to match evidence within a 30m corridor of the route
+      const routeEvidence = getEvidenceNearRoute(route.geometry, allEvidence, 30);
 
       const { score, scoreLabel, breakdown } = calculateBarrierlessScore(
         route.distanceMeters,
@@ -74,7 +105,7 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // 4. Rank candidates by Barrierless Score
+    // 3. Rank candidates purely by Barrierless Score (highest score wins, no artificial bias)
     scoredCandidates.sort((a, b) => (b.score || 0) - (a.score || 0));
 
     // Flag top scoring candidate as recommended
@@ -87,7 +118,8 @@ export async function POST(req: NextRequest) {
       origin,
       destination,
       routes: scoredCandidates,
-      totalEvidenceCount: allEvidence.length
+      totalEvidenceCount: allEvidence.length,
+      dataStatus
     });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to process routing request' }, { status: 500 });

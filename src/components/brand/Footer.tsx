@@ -43,7 +43,7 @@ export function Footer() {
 
         <div className="mt-8 border-t border-[#164273] pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-[#90B5D8]">
           <p>© {new Date().getFullYear()} Barrierless NYC (icaluwu/Barrierless-NYC). Hackathon MVP.</p>
-          <p className="mt-2 sm:mt-0">Domain: barierless.icaluwu.site</p>
+          <p className="mt-2 sm:mt-0">Domain: barrierless.icaluwu.site</p>
         </div>
       </div>
     </footer>

@@ -4,6 +4,7 @@ import { Header } from "@/components/brand/Header";
 import { Footer } from "@/components/brand/Footer";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://barrierless.icaluwu.site"),
   title: "Barrierless NYC — Accessibility-First Pedestrian Navigation",
   description:
     "Compare New York City walking routes based on mobility needs, official NYC accessibility data, community barrier reports, and AI-assisted explanations.",
@@ -16,13 +17,30 @@ export const metadata: Metadata = {
     "Accessibility Intelligence",
   ],
   authors: [{ name: "Barrierless NYC Team" }],
+  alternates: {
+    canonical: "https://barrierless.icaluwu.site",
+  },
   openGraph: {
     title: "Barrierless NYC — Navigate New York by Accessibility",
     description:
       "The shortest route isn't always the route you can use. Accessibility-conscious pedestrian routing for NYC.",
-    url: "https://barierless.icaluwu.site",
+    url: "https://barrierless.icaluwu.site",
     siteName: "Barrierless NYC",
     type: "website",
+    images: [
+      {
+        url: "/brand/logo.svg",
+        width: 1200,
+        height: 630,
+        alt: "Barrierless NYC Brand Logo",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Barrierless NYC — Accessibility-First Pedestrian Navigation",
+    description: "Compare New York City walking routes based on mobility needs.",
+    images: ["/brand/logo.svg"],
   },
   icons: {
     icon: "/brand/logo.svg",

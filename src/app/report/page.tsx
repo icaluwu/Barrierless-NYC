@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { BarrierAnalysisResult, BarrierReport, MobilityProfile } from '@/types';
-import { Upload, Camera, Sparkles, CheckCircle2, AlertTriangle, MapPin, Loader2, ShieldAlert } from 'lucide-react';
+import { BarrierAnalysisResult, BarrierReport } from '@/types';
+import { Upload, Camera, Sparkles, CheckCircle2, AlertTriangle, MapPin, Loader2, ShieldAlert, Navigation, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ReportPage() {
@@ -10,17 +10,27 @@ export default function ReportPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<BarrierAnalysisResult | null>(null);
-  
+  const [manualMode, setManualMode] = useState(false);
+
+  // Manual Form States
+  const [manualBarrierType, setManualBarrierType] = useState('Blocked Curb Ramp');
+  const [manualSeverity, setManualSeverity] = useState<'low' | 'moderate' | 'high'>('high');
+
+  // Location States
   const [latitude, setLatitude] = useState(40.7583);
   const [longitude, setLongitude] = useState(-73.9851);
+  const [locating, setLocating] = useState(false);
+  const [locationStatus, setLocationStatus] = useState<string | null>(null);
+
   const [description, setDescription] = useState('');
-  
   const [submitting, setSubmitting] = useState(false);
   const [submittedReport, setSubmittedReport] = useState<BarrierReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [aiUnavailable, setAiUnavailable] = useState(false);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     setError(null);
+    setAiUnavailable(false);
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -32,12 +42,38 @@ export default function ReportPage() {
     setSelectedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
     setAnalysisResult(null);
+    setManualMode(false);
+  };
+
+  const handleGetCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationStatus('Geolocation is not supported by your browser.');
+      return;
+    }
+
+    setLocating(true);
+    setLocationStatus('Fetching GPS location...');
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(parseFloat(position.coords.latitude.toFixed(6)));
+        setLongitude(parseFloat(position.coords.longitude.toFixed(6)));
+        setLocating(false);
+        setLocationStatus('Current location acquired!');
+      },
+      (err) => {
+        setLocating(false);
+        setLocationStatus(`Geolocation permission denied or unavailable (${err.message}).`);
+      },
+      { timeout: 8000, enableHighAccuracy: true }
+    );
   };
 
   const runAiAnalysis = async () => {
     if (!selectedFile) return;
     setAnalyzing(true);
     setError(null);
+    setAiUnavailable(false);
 
     const formData = new FormData();
     formData.append('file', selectedFile);
@@ -48,55 +84,51 @@ export default function ReportPage() {
         body: formData,
       });
 
-      if (!res.ok) {
-        const errJson = await res.json();
-        throw new Error(errJson.error || 'Failed to analyze barrier photo');
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setAiUnavailable(true);
+        setError(json.message || 'AI barrier scanner is temporarily unavailable.');
+        return;
       }
 
-      const data: BarrierAnalysisResult = await res.json();
-      setAnalysisResult(data);
+      setAnalysisResult(json as BarrierAnalysisResult);
     } catch (e: any) {
-      setError(e.message || 'AI barrier scanner error. Proceeding with manual confirmation.');
-      // Provide deterministic fallback
-      setAnalysisResult({
-        barrierType: 'Physical Sidewalk Obstruction',
-        severity: 'high',
-        observations: ['Photo indicates physical block or ramp disruption.'],
-        affectedProfiles: ['wheelchair', 'stroller'],
-        suggestedReportCategory: 'Pedestrian Barrier',
-        certainty: 'moderate',
-        requiresUserConfirmation: true,
-      });
+      setAiUnavailable(true);
+      setError('AI barrier analysis network request failed.');
     } finally {
       setAnalyzing(false);
     }
   };
 
   const handleConfirmSubmit = async () => {
-    if (!analysisResult) return;
     setSubmitting(true);
     setError(null);
+
+    const reportPayload = {
+      latitude,
+      longitude,
+      barrierType: analysisResult ? analysisResult.barrierType : manualBarrierType,
+      severity: analysisResult ? analysisResult.severity : manualSeverity,
+      description: description || (analysisResult ? analysisResult.observations.join(' ') : manualBarrierType),
+      aiObservations: analysisResult ? analysisResult.observations : ['User submitted manual barrier report'],
+      affectedProfiles: analysisResult ? analysisResult.affectedProfiles : ['wheelchair', 'stroller'],
+    };
 
     try {
       const res = await fetch('/api/reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          latitude,
-          longitude,
-          barrierType: analysisResult.barrierType,
-          severity: analysisResult.severity,
-          description: description || analysisResult.observations.join(' '),
-          aiObservations: analysisResult.observations,
-          affectedProfiles: analysisResult.affectedProfiles,
-        }),
+        body: JSON.stringify(reportPayload),
       });
 
-      if (!res.ok) throw new Error('Failed to persist community report');
       const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || 'Failed to submit community report.');
+      }
+
       setSubmittedReport(json.report);
     } catch (e: any) {
-      setError('Failed to submit report. Please check location parameters.');
+      setError(e.message || 'Failed to submit report. Database persistence may be unavailable.');
     } finally {
       setSubmitting(false);
     }
@@ -139,6 +171,7 @@ export default function ReportPage() {
                 setSelectedFile(null);
                 setPreviewUrl(null);
                 setAnalysisResult(null);
+                setManualMode(false);
               }}
               className="rounded-xl border border-[#CFE1F1] bg-white px-6 py-2.5 text-sm font-bold text-[#071A2F]"
             >
@@ -169,6 +202,7 @@ export default function ReportPage() {
                         setSelectedFile(null);
                         setPreviewUrl(null);
                         setAnalysisResult(null);
+                        setManualMode(false);
                       }}
                       className="text-[#BE3942] font-bold hover:underline"
                     >
@@ -194,7 +228,7 @@ export default function ReportPage() {
             </div>
 
             {/* Run AI Analysis Button */}
-            {selectedFile && !analysisResult && (
+            {selectedFile && !analysisResult && !manualMode && (
               <button
                 type="button"
                 onClick={runAiAnalysis}
@@ -206,9 +240,27 @@ export default function ReportPage() {
               </button>
             )}
 
-            {/* Location Inputs */}
+            {/* Location Selection Section */}
             <div className="space-y-3 pt-4 border-t border-[#CFE1F1]">
-              <h2 className="text-base font-bold text-[#071A2F]">2. Obstruction Location</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-base font-bold text-[#071A2F]">2. Obstruction Location</h2>
+                <button
+                  type="button"
+                  onClick={handleGetCurrentLocation}
+                  disabled={locating}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#EFF7FF] border border-[#CFE1F1] px-2.5 py-1 text-xs font-bold text-[#0867E8] hover:bg-[#DCEEFF]"
+                >
+                  {locating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Navigation className="h-3.5 w-3.5" />}
+                  Use My Current Location
+                </button>
+              </div>
+
+              {locationStatus && (
+                <div className="text-[11px] font-semibold text-[#0867E8] bg-[#EFF7FF] p-2 rounded-lg border border-[#CFE1F1]">
+                  {locationStatus}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-[#4C637A] mb-1">Latitude</label>
@@ -231,28 +283,50 @@ export default function ReportPage() {
                   />
                 </div>
               </div>
-              <p className="text-[11px] text-[#4C637A]">
-                Default coordinates set to Times Square corridor. Adjust to exact barrier position.
-              </p>
             </div>
           </div>
 
-          {/* Right Column: AI Analysis & Confirmation */}
+          {/* Right Column: AI Analysis / Manual Report & Confirmation */}
           <div className="space-y-6 rounded-3xl border border-[#CFE1F1] bg-white p-6 shadow-sm flex flex-col justify-between">
             <div>
-              <h2 className="text-base font-bold text-[#071A2F] mb-4">3. Structured AI Analysis & Confirmation</h2>
+              <h2 className="text-base font-bold text-[#071A2F] mb-4">3. Structured Analysis & Confirmation</h2>
 
               {error && (
-                <div className="rounded-xl border border-[#BE3942]/30 bg-[#FFEBEB] p-3 text-xs text-[#BE3942] mb-4">
-                  {error}
+                <div className="rounded-xl border border-[#BE3942]/30 bg-[#FFEBEB] p-3 text-xs text-[#BE3942] mb-4 space-y-2">
+                  <div>{error}</div>
+                  {aiUnavailable && (
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={runAiAnalysis}
+                        className="rounded-lg bg-[#BE3942] px-3 py-1 text-[11px] font-bold text-white flex items-center gap-1"
+                      >
+                        <RefreshCw className="h-3 w-3" /> Retry AI
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManualMode(true);
+                          setError(null);
+                        }}
+                        className="rounded-lg border border-[#BE3942] bg-white px-3 py-1 text-[11px] font-bold text-[#BE3942]"
+                      >
+                        Continue with Manual Report
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {!analysisResult ? (
+              {/* State A: Initial Idle State */}
+              {!analysisResult && !manualMode && !aiUnavailable && (
                 <div className="rounded-2xl border border-dashed border-[#CFE1F1] bg-[#EFF7FF]/30 p-8 text-center text-xs text-[#4C637A]">
                   Upload a barrier photo and click <span className="font-bold">Run Multimodal AI Analysis</span> to generate structured evidence.
                 </div>
-              ) : (
+              )}
+
+              {/* State B: Gemini AI Output */}
+              {analysisResult && !manualMode && (
                 <div className="space-y-4">
                   <div className="rounded-2xl bg-[#EFF7FF] p-4 border border-[#CFE1F1] space-y-2">
                     <div className="flex items-center justify-between">
@@ -290,44 +364,72 @@ export default function ReportPage() {
                       ))}
                     </ul>
                   </div>
+                </div>
+              )}
 
-                  <div>
-                    <h4 className="text-xs font-bold text-[#071A2F] mb-1">Affected Mobility Profiles:</h4>
-                    <div className="flex flex-wrap gap-1">
-                      {analysisResult.affectedProfiles.map((p) => (
-                        <span key={p} className="rounded-lg bg-[#DCEEFF] px-2 py-0.5 text-[11px] font-bold text-[#0867E8]">
-                          {p.replace('_', ' ')}
-                        </span>
-                      ))}
-                    </div>
+              {/* State C: Manual Mode (when AI unavailable) */}
+              {manualMode && (
+                <div className="space-y-4">
+                  <div className="rounded-xl bg-[#FFF3DC] p-3 text-xs text-[#A96500] font-semibold">
+                    Manual Reporting Mode Enabled
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-[#071A2F] mb-1">Additional Notes (Optional)</label>
-                    <textarea
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="Add any extra detail about this obstacle..."
-                      className="w-full rounded-xl border border-[#CFE1F1] p-2 text-xs text-[#071A2F]"
-                      rows={2}
-                    />
+                    <label className="block text-xs font-bold text-[#071A2F] mb-1">Barrier Category</label>
+                    <select
+                      value={manualBarrierType}
+                      onChange={(e) => setManualBarrierType(e.target.value)}
+                      className="w-full rounded-xl border border-[#CFE1F1] p-2 text-xs font-bold text-[#071A2F]"
+                    >
+                      <option value="Blocked Curb Ramp">Blocked Curb Ramp</option>
+                      <option value="Construction Obstruction">Construction Obstruction</option>
+                      <option value="Damaged Sidewalk Pavement">Damaged Sidewalk Pavement</option>
+                      <option value="Missing Tactile Paving">Missing Tactile Paving</option>
+                      <option value="Narrow Pass-through Corridor">Narrow Pass-through Corridor</option>
+                    </select>
                   </div>
 
-                  <div className="rounded-xl bg-[#FFF3DC] p-3 border border-[#A96500]/20 text-[11px] text-[#A96500] flex items-center gap-2">
+                  <div>
+                    <label className="block text-xs font-bold text-[#071A2F] mb-1">Severity</label>
+                    <select
+                      value={manualSeverity}
+                      onChange={(e) => setManualSeverity(e.target.value as any)}
+                      className="w-full rounded-xl border border-[#CFE1F1] p-2 text-xs font-bold text-[#071A2F]"
+                    >
+                      <option value="high">High (Completely Impassable)</option>
+                      <option value="moderate">Moderate (Hazard / Tip Risk)</option>
+                      <option value="low">Low (Minor Restriction)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Additional Description Input */}
+              {(analysisResult || manualMode) && (
+                <div className="pt-3">
+                  <label className="block text-xs font-bold text-[#071A2F] mb-1">Additional Notes (Optional)</label>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Add any extra details about this physical obstacle..."
+                    className="w-full rounded-xl border border-[#CFE1F1] p-2 text-xs text-[#071A2F]"
+                    rows={2}
+                  />
+                  <div className="mt-2 rounded-xl bg-[#FFF3DC] p-2.5 border border-[#A96500]/20 text-[11px] text-[#A96500] flex items-center gap-2">
                     <ShieldAlert className="h-4 w-4 shrink-0" />
-                    <span>Explicit user confirmation is required before persisting community reports.</span>
+                    <span>Explicit user confirmation required before storing community reports.</span>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Confirm & Submit Button */}
-            {analysisResult && (
+            {/* Confirm & Publish Button */}
+            {(analysisResult || manualMode) && (
               <button
                 type="button"
                 onClick={handleConfirmSubmit}
                 disabled={submitting}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#16835D] py-3 text-xs font-extrabold text-white shadow-md hover:bg-[#126b4c] transition-colors disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#16835D] py-3 text-xs font-extrabold text-white shadow-md hover:bg-[#126b4c] transition-colors disabled:opacity-50 mt-4"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 Confirm & Publish Community Report

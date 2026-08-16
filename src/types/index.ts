@@ -6,14 +6,20 @@ export type EvidenceSeverity = 'low' | 'moderate' | 'high';
 
 export type EvidenceSource = 'nyc_ramp' | 'nyc_construction' | 'nyc_311' | 'community';
 
+export type DataMode = 'live' | 'degraded' | 'demo';
+
 export interface AccessibilityEvidence {
   id: string;
   source: EvidenceSource;
+  sourceType?: 'official' | 'community';
+  sourceName?: string;
+  dataMode?: DataMode;
   coordinate: Coordinates;
   severity: EvidenceSeverity;
   category: string;
   description: string;
   observedAt?: string;
+  distanceFromRouteMeters?: number;
 }
 
 export interface ScoreBreakdown {
@@ -51,6 +57,7 @@ export interface AiRouteExplanation {
   summary: string;
   reasons: string[];
   caveat: string;
+  isAiGenerated?: boolean;
 }
 
 export interface BarrierAnalysisResult {
@@ -76,4 +83,12 @@ export interface BarrierReport {
   status: 'pending' | 'active' | 'resolved' | 'expired';
   createdAt: string;
   expiresAt?: string;
+}
+
+export interface SystemDataStatus {
+  routing: DataMode;
+  ramps: DataMode;
+  construction: DataMode;
+  complaints311: DataMode;
+  communityReports: DataMode;
 }

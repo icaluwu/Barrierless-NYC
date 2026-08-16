@@ -24,6 +24,7 @@ export function MapContainer({
 }: MapContainerProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const markersRef = useRef<maplibregl.Marker[]>([]);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -41,10 +42,12 @@ export function MapContainer({
 
     map.on('load', () => {
       mapRef.current = map;
-      updateMapLayers(map, routes, selectedRouteId, evidenceList);
+      updateMapLayers(map, routes, selectedRouteId, evidenceList, markersRef, onSelectRoute);
     });
 
     return () => {
+      markersRef.current.forEach((m) => m.remove());
+      markersRef.current = [];
       map.remove();
       mapRef.current = null;
     };
@@ -52,32 +55,43 @@ export function MapContainer({
 
   useEffect(() => {
     if (mapRef.current && mapRef.current.isStyleLoaded()) {
-      updateMapLayers(mapRef.current, routes, selectedRouteId, evidenceList);
+      updateMapLayers(mapRef.current, routes, selectedRouteId, evidenceList, markersRef, onSelectRoute);
     }
   }, [routes, selectedRouteId, evidenceList]);
 
   return (
-    <div className="relative w-full h-full min-h-[380px] rounded-2xl overflow-hidden border border-[#CFE1F1] shadow-inner bg-[#EFF7FF]">
+    <div className="relative w-full h-full min-h-[400px] rounded-2xl overflow-hidden border border-[#CFE1F1] shadow-inner bg-[#EFF7FF]">
       <div ref={mapContainerRef} className="w-full h-full" aria-label="Interactive NYC Map" />
-      
-      {/* Map Legend Overlay */}
-      <div className="absolute bottom-4 left-4 z-10 rounded-xl bg-white/95 backdrop-blur-md p-3 shadow-md border border-[#CFE1F1] text-xs space-y-1.5">
-        <div className="font-bold text-[#071A2F] mb-1">Map Legend</div>
-        <div className="flex items-center gap-2">
-          <span className="h-3 w-3 rounded-full bg-[#0867E8] inline-block" />
-          <span className="text-[#071A2F]">Recommended Route</span>
+
+      {/* Map Legend & Provenance Overlay */}
+      <div className="absolute bottom-4 left-4 z-10 rounded-xl bg-white/95 backdrop-blur-md p-3 shadow-md border border-[#CFE1F1] text-xs space-y-1.5 max-w-[220px]">
+        <div className="font-bold text-[#071A2F] mb-1 flex items-center justify-between">
+          <span>Map Legend</span>
+          <span className="text-[10px] text-[#0867E8] bg-[#DCEEFF] px-1.5 py-0.5 rounded font-semibold">NYC</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="h-3 w-3 rounded-full bg-[#A96500] inline-block" />
+          <span className="h-3 w-3 rounded-full bg-[#0867E8] inline-block" />
+          <span className="text-[#071A2F] font-medium">Selected Route</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="h-3 w-3 rounded-full bg-[#94A3B8] inline-block" />
           <span className="text-[#071A2F]">Alternative Route</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="h-3 w-3 rounded-full bg-[#16835D] inline-block" />
-          <span className="text-[#071A2F]">NYC Ramp Signal</span>
+          <span className="h-2.5 w-2.5 rounded-full bg-[#16835D] inline-block" />
+          <span className="text-[#071A2F]">Official NYC Ramp</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="h-3 w-3 rounded-full bg-[#BE3942] inline-block" />
-          <span className="text-[#071A2F]">Construction / Barrier</span>
+          <span className="h-2.5 w-2.5 rounded-full bg-[#D97706] inline-block" />
+          <span className="text-[#071A2F]">Construction Permit</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#DC2626] inline-block" />
+          <span className="text-[#071A2F]">NYC 311 Complaint</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#7C3AED] inline-block" />
+          <span className="text-[#071A2F]">Community Report</span>
         </div>
       </div>
     </div>
@@ -87,29 +101,32 @@ export function MapContainer({
 function updateMapLayers(
   map: maplibregl.Map,
   routes: RouteCandidate[],
-  selectedRouteId?: string,
-  evidenceList: AccessibilityEvidence[] = []
+  selectedRouteId: string | undefined,
+  evidenceList: AccessibilityEvidence[],
+  markersRef: React.MutableRefObject<maplibregl.Marker[]>,
+  onSelectRoute?: (routeId: string) => void
 ) {
-  // Remove existing route layers & sources if present
-  ['route-recommended', 'route-alt-1', 'route-alt-2'].forEach((id) => {
-    if (map.getLayer(id)) map.removeLayer(id);
-    if (map.getSource(id)) map.removeSource(id);
+  // Clear existing HTML markers
+  markersRef.current.forEach((m) => m.remove());
+  markersRef.current = [];
+
+  // Remove existing route layers & sources
+  routes.forEach((route) => {
+    const sourceId = `route-${route.id}`;
+    if (map.getLayer(sourceId)) map.removeLayer(sourceId);
+    if (map.getSource(sourceId)) map.removeSource(sourceId);
   });
 
+  // Render Candidate Route Line Layers
   routes.forEach((route, idx) => {
     const isSelected = route.id === selectedRouteId || (idx === 0 && !selectedRouteId);
     const sourceId = `route-${route.id}`;
-
-    if (map.getSource(sourceId)) {
-      map.removeLayer(sourceId);
-      map.removeSource(sourceId);
-    }
 
     map.addSource(sourceId, {
       type: 'geojson',
       data: {
         type: 'Feature',
-        properties: {},
+        properties: { routeId: route.id },
         geometry: route.geometry,
       },
     });
@@ -123,14 +140,90 @@ function updateMapLayers(
         'line-cap': 'round',
       },
       paint: {
-        'line-color': isSelected ? '#0867E8' : '#A96500',
-        'line-width': isSelected ? 6 : 4,
-        'line-opacity': isSelected ? 0.9 : 0.6,
+        'line-color': isSelected ? '#0867E8' : '#94A3B8',
+        'line-width': isSelected ? 7 : 4,
+        'line-opacity': isSelected ? 0.95 : 0.45,
       },
+    });
+
+    // Handle line click to select route
+    map.on('click', sourceId, () => {
+      if (onSelectRoute) onSelectRoute(route.id);
+    });
+
+    map.on('mouseenter', sourceId, () => {
+      map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', sourceId, () => {
+      map.getCanvas().style.cursor = '';
     });
   });
 
-  // Fit bounds to routes if available
+  // Render Evidence Markers with HTML elements & popups
+  evidenceList.forEach((e) => {
+    if (!e.coordinate || e.coordinate.length < 2) return;
+    const [lng, lat] = e.coordinate;
+
+    const el = document.createElement('div');
+    el.className = 'evidence-marker-container';
+
+    // Color and icon code by source type
+    let color = '#16835D'; // Ramp default (green)
+    let iconSymbol = '✓';
+    let sourceLabel = e.sourceName || 'Official NYC Data';
+
+    if (e.source === 'nyc_construction') {
+      color = '#D97706'; // Construction (amber)
+      iconSymbol = '⚠';
+    } else if (e.source === 'nyc_311') {
+      color = '#DC2626'; // 311 (red)
+      iconSymbol = '!';
+    } else if (e.source === 'community') {
+      color = '#7C3AED'; // Community (purple)
+      iconSymbol = '★';
+      sourceLabel = 'Community Report (User Confirmed)';
+    }
+
+    el.style.backgroundColor = color;
+    el.style.color = '#FFFFFF';
+    el.style.width = '20px';
+    el.style.height = '20px';
+    el.style.borderRadius = '50%';
+    el.style.display = 'flex';
+    el.style.alignItems = 'center';
+    el.style.justifyContent = 'center';
+    el.style.fontSize = '10px';
+    el.style.fontWeight = 'bold';
+    el.style.border = '2px solid #FFFFFF';
+    el.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+    el.style.cursor = 'pointer';
+
+    el.innerText = iconSymbol;
+
+    const distanceInfo = e.distanceFromRouteMeters !== undefined
+      ? `<div style="font-size: 11px; color: #0867E8; margin-top: 4px; font-weight: 600;">Distance from selected route: ${e.distanceFromRouteMeters}m</div>`
+      : '';
+
+    const popupHtml = `
+      <div style="font-family: system-ui, sans-serif; padding: 6px 8px; max-width: 220px;">
+        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: ${color}; letter-spacing: 0.5px;">${sourceLabel}</div>
+        <div style="font-size: 13px; font-weight: 700; color: #071A2F; margin-top: 2px;">${e.category}</div>
+        <div style="font-size: 11px; color: #4C637A; margin-top: 4px; line-height: 1.4;">${e.description}</div>
+        ${distanceInfo}
+      </div>
+    `;
+
+    const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(popupHtml);
+
+    const marker = new maplibregl.Marker({ element: el })
+      .setLngLat([lng, lat])
+      .setPopup(popup)
+      .addTo(map);
+
+    markersRef.current.push(marker);
+  });
+
+  // Fit bounds to candidate routes
   if (routes.length > 0 && routes[0].geometry.coordinates.length > 0) {
     const bounds = new maplibregl.LngLatBounds();
     routes.forEach((r) => {

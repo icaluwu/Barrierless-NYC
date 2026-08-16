@@ -1,8 +1,12 @@
-import { BarrierReport } from '@/types';
+import { BarrierReport, DataMode } from '@/types';
 import { getSupabaseAdmin, getSupabaseClient } from '@/lib/supabase/client';
 
-// Memory repository fallback for local testing & offline demo scenarios
-const MEMORY_REPORTS: BarrierReport[] = [
+export interface FetchReportsResponse {
+  reports: BarrierReport[];
+  dataMode: DataMode;
+}
+
+const DEMO_REPORTS: BarrierReport[] = [
   {
     id: 'report-demo-1',
     latitude: 40.7583,
@@ -29,19 +33,23 @@ const MEMORY_REPORTS: BarrierReport[] = [
   }
 ];
 
-export async function fetchActiveCommunityReports(): Promise<BarrierReport[]> {
-  const admin = getSupabaseAdmin();
-  if (admin) {
+export async function fetchActiveCommunityReports(): Promise<FetchReportsResponse> {
+  const isDemoEnabled = process.env.ENABLE_DEMO_DATA === 'true';
+  const supabase = getSupabaseClient() || getSupabaseAdmin();
+
+  if (supabase) {
     try {
-      const { data, error } = await admin
+      const { data, error } = await supabase
         .from('barrier_reports')
         .select('*')
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
+
       if (!error && data) {
-        return data.map((r: any) => ({
+        const reports: BarrierReport[] = data.map((r: any) => ({
           id: r.id,
-          latitude: r.latitude,
-          longitude: r.longitude,
+          latitude: parseFloat(r.latitude),
+          longitude: parseFloat(r.longitude),
           barrierType: r.barrier_type,
           severity: r.severity,
           description: r.description,
@@ -51,23 +59,43 @@ export async function fetchActiveCommunityReports(): Promise<BarrierReport[]> {
           createdAt: r.created_at,
           expiresAt: r.expires_at
         }));
+        return { reports, dataMode: 'live' };
       }
     } catch (e) {
-      // Fallback to memory reports
+      console.warn('Supabase community reports fetch error.');
     }
   }
-  return MEMORY_REPORTS;
+
+  if (isDemoEnabled) {
+    return { reports: DEMO_REPORTS, dataMode: 'demo' };
+  }
+
+  return { reports: [], dataMode: 'degraded' };
 }
 
-export async function saveCommunityReport(report: Omit<BarrierReport, 'id' | 'createdAt' | 'status'>): Promise<BarrierReport> {
+export async function saveCommunityReport(
+  report: Omit<BarrierReport, 'id' | 'createdAt' | 'status'>
+): Promise<BarrierReport> {
+  const isDemoEnabled = process.env.ENABLE_DEMO_DATA === 'true';
+
+  // Input validation for safety
+  if (isNaN(report.latitude) || isNaN(report.longitude)) {
+    throw new Error('Invalid report coordinates');
+  }
+  if (Math.abs(report.latitude) > 90 || Math.abs(report.longitude) > 180) {
+    throw new Error('Coordinates out of range');
+  }
+
   const newReport: BarrierReport = {
     ...report,
+    barrierType: (report.barrierType || 'Sidewalk Obstruction').slice(0, 100),
+    description: (report.description || '').slice(0, 500),
     id: `report-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     status: 'active',
     createdAt: new Date().toISOString()
   };
 
-  const admin = getSupabaseAdmin();
+  const admin = getSupabaseAdmin() || getSupabaseClient();
   if (admin) {
     try {
       const { data, error } = await admin.from('barrier_reports').insert({
@@ -85,12 +113,19 @@ export async function saveCommunityReport(report: Omit<BarrierReport, 'id' | 'cr
 
       if (!error && data) {
         return newReport;
+      } else if (error) {
+        console.error('Supabase report insert error:', error.message);
       }
     } catch (e) {
-      // Fallback to memory persistence
+      console.error('Supabase persistence exception:', e);
     }
   }
 
-  MEMORY_REPORTS.unshift(newReport);
+  // Production failure policy: do NOT pretend memory persistence succeeded
+  if (!isDemoEnabled) {
+    throw new Error('DATABASE_UNAVAILABLE');
+  }
+
+  DEMO_REPORTS.unshift(newReport);
   return newReport;
 }

@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { RouteCandidate } from '@/types';
-import { ShieldCheck, Clock, Ruler, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ShieldCheck, Clock, Ruler, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface RouteCardProps {
   route: RouteCandidate;
@@ -17,13 +17,15 @@ export function RouteCard({
   onSelect,
   fastestDurationMinutes = 10,
 }: RouteCardProps) {
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const score = route.score || 50;
-  const scoreLabel = route.scoreLabel || 'Moderate Accessibility';
+  const scoreLabel = route.scoreLabel || 'Moderate Suitability';
+  const breakdown = route.scoreBreakdown;
 
   const timeDiff = route.durationMinutes - fastestDurationMinutes;
   const timeDiffText =
     timeDiff <= 0
-      ? 'Fastest direct path'
+      ? 'Fastest direct corridor'
       : `+${timeDiff} min trade-off vs fastest route`;
 
   return (
@@ -62,13 +64,13 @@ export function RouteCard({
         <div className="text-right flex flex-col items-end">
           <div
             className={`inline-flex items-center gap-1 rounded-xl px-3 py-1 text-sm font-extrabold shadow-sm ${
-              score >= 85
+              score >= 80
                 ? 'bg-[#16835D] text-white'
-                : score >= 70
+                : score >= 65
                 ? 'bg-[#0867E8] text-white'
                 : score >= 50
-                ? 'bg-[#A96500] text-white'
-                : 'bg-[#BE3942] text-white'
+                ? 'bg-[#D97706] text-white'
+                : 'bg-[#DC2626] text-white'
             }`}
           >
             <ShieldCheck className="h-4 w-4" />
@@ -83,9 +85,52 @@ export function RouteCard({
         <div className="flex items-center justify-between">
           <span className="font-semibold text-[#0867E8]">{timeDiffText}</span>
           <span className="text-[#4C637A]">
-            {route.scoreBreakdown?.evidenceCounts.ramps || 0} ramps • {route.scoreBreakdown?.evidenceCounts.construction || 0} construction
+            {breakdown?.evidenceCounts.ramps || 0} ramps • {breakdown?.evidenceCounts.construction || 0} construction
           </span>
         </div>
+
+        {/* Breakdown Toggle */}
+        {breakdown && (
+          <div className="mt-1 pt-1.5 border-t border-[#CFE1F1]/80 flex items-center justify-between text-[11px]">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowBreakdown(!showBreakdown);
+              }}
+              className="font-bold text-[#0867E8] hover:underline flex items-center gap-1"
+            >
+              <span>Score Breakdown ({breakdown.totalScore}/100)</span>
+              {showBreakdown ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            </button>
+          </div>
+        )}
+
+        {/* Detailed Deterministic Breakdown List */}
+        {showBreakdown && breakdown && (
+          <div className="mt-2 space-y-1 rounded-md bg-white p-2.5 border border-[#CFE1F1] text-[11px] text-[#071A2F]">
+            <div className="flex justify-between">
+              <span>Pedestrian Ramp Coverage</span>
+              <span className="font-bold text-[#16835D]">+{breakdown.rampCoverageScore} pts</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Construction Risk Penalty</span>
+              <span className="font-bold text-[#DC2626]">{breakdown.constructionPenalty} pts</span>
+            </div>
+            <div className="flex justify-between">
+              <span>311 Sidewalk Issue Penalty</span>
+              <span className="font-bold text-[#DC2626]">{breakdown.complaintPenalty} pts</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Community Barrier Penalty</span>
+              <span className="font-bold text-[#7C3AED]">{breakdown.communityReportPenalty} pts</span>
+            </div>
+            <div className="flex justify-between border-t border-gray-100 pt-1">
+              <span>Profile Suitability Bonus</span>
+              <span className="font-bold text-[#0867E8]">+{breakdown.profileSuitabilityBonus} pts</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
