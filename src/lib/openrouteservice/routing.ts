@@ -5,6 +5,8 @@ export interface RouteCandidatesResponse {
   dataMode: DataMode;
 }
 
+const ORS_BASE_URL = process.env.OPENROUTESERVICE_BASE_URL || 'https://api.openrouteservice.org';
+
 export async function fetchRouteCandidates(
   origin: Coordinates,
   destination: Coordinates,
@@ -16,44 +18,49 @@ export async function fetchRouteCandidates(
   const orsProfile = profile === 'wheelchair' ? 'wheelchair' : 'foot-walking';
 
   if (apiKey) {
-    try {
-      const url = `https://api.openrouteservice.org/v2/directions/${orsProfile}/geojson`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4000);
+    // Try primary base URL then fallback to heigit if configured
+    const baseUrls = [ORS_BASE_URL, 'https://api.heigit.org'];
 
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': apiKey,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          coordinates: [origin, destination],
-          alternative_routes: { target_count: 2 }
-        }),
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
+    for (const baseUrl of baseUrls) {
+      try {
+        const url = `${baseUrl}/v2/directions/${orsProfile}/geojson`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 4000);
 
-      if (res.ok) {
-        const json = await res.json();
-        if (json.features && Array.isArray(json.features) && json.features.length > 0) {
-          const routes = json.features.map((feat: any, idx: number) => {
-            const props = feat.properties || {};
-            const summary = props.summary || {};
-            return {
-              id: `ors-route-${idx + 1}`,
-              name: idx === 0 ? 'Primary Accessible Route' : `Alternative Pedestrian Corridor ${idx}`,
-              distanceMeters: Math.round(summary.distance || 850),
-              durationMinutes: Math.round((summary.duration || 600) / 60),
-              geometry: feat.geometry
-            };
-          });
-          return { routes, dataMode: 'live' };
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': apiKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            coordinates: [origin, destination],
+            alternative_routes: { target_count: 2 }
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+
+        if (res.ok) {
+          const json = await res.json();
+          if (json.features && Array.isArray(json.features) && json.features.length > 0) {
+            const routes = json.features.map((feat: any, idx: number) => {
+              const props = feat.properties || {};
+              const summary = props.summary || {};
+              return {
+                id: `ors-route-${idx + 1}`,
+                name: idx === 0 ? 'Primary Accessible Route' : `Alternative Pedestrian Corridor ${idx}`,
+                distanceMeters: Math.round(summary.distance || 850),
+                durationMinutes: Math.round((summary.duration || 600) / 60),
+                geometry: feat.geometry
+              };
+            });
+            return { routes, dataMode: 'live' };
+          }
         }
+      } catch (e) {
+        console.warn(`Routing request to ${baseUrl} failed, trying secondary route host...`);
       }
-    } catch (e) {
-      console.warn('OpenRouteService request failed, defaulting to system fallback routes.');
     }
   }
 

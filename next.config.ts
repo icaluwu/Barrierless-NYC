@@ -23,9 +23,9 @@ const securityHeaders = [
       default-src 'self';
       script-src 'self' 'unsafe-eval' 'unsafe-inline' https://unpkg.com;
       style-src 'self' 'unsafe-inline' https://api.mapbox.com;
-      img-src 'self' data: blob: https://* http://*;
+      img-src 'self' data: blob: https://tiles.openfreemap.org https://data.cityofnewyork.us;
       font-src 'self' data:;
-      connect-src 'self' https://* http://* wss://*;
+      connect-src 'self' https://tiles.openfreemap.org https://api.openrouteservice.org https://api.heigit.org https://data.cityofnewyork.us https://*.supabase.co;
       worker-src 'self' blob:;
       child-src 'self' blob:;
       frame-src 'self' https://my.spline.design;

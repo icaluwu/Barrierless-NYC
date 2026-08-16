@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { AccessibilityEvidence, RouteCandidate } from '@/types';
+import { createEvidencePopupContent } from '@/lib/map/create-evidence-popup-content';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -200,20 +201,8 @@ function updateMapLayers(
 
     el.innerText = iconSymbol;
 
-    const distanceInfo = e.distanceFromRouteMeters !== undefined
-      ? `<div style="font-size: 11px; color: #0867E8; margin-top: 4px; font-weight: 600;">Distance from selected route: ${e.distanceFromRouteMeters}m</div>`
-      : '';
-
-    const popupHtml = `
-      <div style="font-family: system-ui, sans-serif; padding: 6px 8px; max-width: 220px;">
-        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: ${color}; letter-spacing: 0.5px;">${sourceLabel}</div>
-        <div style="font-size: 13px; font-weight: 700; color: #071A2F; margin-top: 2px;">${e.category}</div>
-        <div style="font-size: 11px; color: #4C637A; margin-top: 4px; line-height: 1.4;">${e.description}</div>
-        ${distanceInfo}
-      </div>
-    `;
-
-    const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(popupHtml);
+    const popupContent = createEvidencePopupContent(e, color, sourceLabel);
+    const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setDOMContent(popupContent);
 
     const marker = new maplibregl.Marker({ element: el })
       .setLngLat([lng, lat])

@@ -1,5 +1,6 @@
 import { BarrierReport, DataMode } from '@/types';
-import { getSupabaseAdmin, getSupabaseClient } from '@/lib/supabase/client';
+import { getSupabaseAdminClient, getSupabasePublicClient } from '@/lib/supabase/client';
+import { NYC_BOUNDS } from '@/lib/security/schemas';
 
 export interface FetchReportsResponse {
   reports: BarrierReport[];
@@ -35,7 +36,7 @@ const DEMO_REPORTS: BarrierReport[] = [
 
 export async function fetchActiveCommunityReports(): Promise<FetchReportsResponse> {
   const isDemoEnabled = process.env.ENABLE_DEMO_DATA === 'true';
-  const supabase = getSupabaseClient() || getSupabaseAdmin();
+  const supabase = getSupabasePublicClient() || getSupabaseAdminClient();
 
   if (supabase) {
     try {
@@ -78,24 +79,29 @@ export async function saveCommunityReport(
 ): Promise<BarrierReport> {
   const isDemoEnabled = process.env.ENABLE_DEMO_DATA === 'true';
 
-  // Input validation for safety
-  if (isNaN(report.latitude) || isNaN(report.longitude)) {
-    throw new Error('Invalid report coordinates');
-  }
-  if (Math.abs(report.latitude) > 90 || Math.abs(report.longitude) > 180) {
-    throw new Error('Coordinates out of range');
+  // Server-side NYC geographic bounds validation
+  if (
+    isNaN(report.latitude) ||
+    isNaN(report.longitude) ||
+    report.latitude < NYC_BOUNDS.minLat ||
+    report.latitude > NYC_BOUNDS.maxLat ||
+    report.longitude < NYC_BOUNDS.minLng ||
+    report.longitude > NYC_BOUNDS.maxLng
+  ) {
+    throw new Error('Barrier reports must be located within New York City.');
   }
 
   const newReport: BarrierReport = {
     ...report,
     barrierType: (report.barrierType || 'Sidewalk Obstruction').slice(0, 100),
-    description: (report.description || '').slice(0, 500),
+    description: (report.description || '').slice(0, 1000),
     id: `report-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     status: 'active',
     createdAt: new Date().toISOString()
   };
 
-  const admin = getSupabaseAdmin() || getSupabaseClient();
+  // Strictly require server-side admin client for write path (no fallback to public anon key)
+  const admin = getSupabaseAdminClient();
   if (admin) {
     try {
       const { data, error } = await admin.from('barrier_reports').insert({

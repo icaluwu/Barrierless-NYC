@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { AiBarrierAnalysisSchema, AiRouteExplanationSchema } from '../security/schemas';
 import { AiRouteExplanation, BarrierAnalysisResult, MobilityProfile } from '@/types';
 
-const GEMINI_MODEL_ID = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+const GEMINI_MODEL_ID = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
 function getGeminiClient(): GoogleGenerativeAI | null {
   const apiKey = process.env.GEMINI_API_KEY;

@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+export const NYC_BOUNDS = {
+  minLat: 40.49,
+  maxLat: 40.92,
+  minLng: -74.26,
+  maxLng: -73.70,
+};
+
 export const CoordinatesSchema = z.tuple([
   z.number().min(-180).max(180), // longitude
   z.number().min(-90).max(90)    // latitude
@@ -46,7 +53,7 @@ export const AiRouteExplanationSchema = z.object({
 export const AiBarrierAnalysisSchema = z.object({
   barrierType: z.string().min(3).max(100),
   severity: z.enum(['low', 'moderate', 'high']),
-  observations: z.array(z.string()).min(1).max(5),
+  observations: z.array(z.string().max(500)).min(1).max(5),
   affectedProfiles: z.array(MobilityProfileSchema),
   suggestedReportCategory: z.string().min(3).max(100),
   certainty: z.enum(['low', 'moderate', 'high']),
@@ -54,12 +61,21 @@ export const AiBarrierAnalysisSchema = z.object({
 });
 
 export const CreateReportSchema = z.object({
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
+  latitude: z
+    .number()
+    .min(NYC_BOUNDS.minLat, { message: 'Barrier reports must be located within New York City.' })
+    .max(NYC_BOUNDS.maxLat, { message: 'Barrier reports must be located within New York City.' }),
+  longitude: z
+    .number()
+    .min(NYC_BOUNDS.minLng, { message: 'Barrier reports must be located within New York City.' })
+    .max(NYC_BOUNDS.maxLng, { message: 'Barrier reports must be located within New York City.' }),
   barrierType: z.string().min(3).max(100),
   severity: z.enum(['low', 'moderate', 'high']),
   description: z.string().max(1000).optional(),
   imagePath: z.string().optional(),
-  aiObservations: z.array(z.string()).optional(),
-  affectedProfiles: z.array(MobilityProfileSchema).optional()
+  aiObservations: z.array(z.string().max(500)).max(5).optional(),
+  affectedProfiles: z
+    .array(MobilityProfileSchema)
+    .optional()
+    .transform((arr) => (arr ? Array.from(new Set(arr)) : undefined))
 });

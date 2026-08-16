@@ -29,10 +29,10 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/brand/logo.svg",
+        url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "Barrierless NYC Brand Logo",
+        alt: "Barrierless NYC accessibility-first navigation preview",
       },
     ],
   },
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Barrierless NYC — Accessibility-First Pedestrian Navigation",
     description: "Compare New York City walking routes based on mobility needs.",
-    images: ["/brand/logo.svg"],
+    images: ["/og-image.png"],
   },
   icons: {
     icon: "/brand/logo.svg",
